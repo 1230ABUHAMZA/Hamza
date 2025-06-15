@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Word Search Game</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Roboto+Slab&display=swap');
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    font-family: 'Roboto Slab', serif;
+    display: flex; justify-content: center; align-items: center;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #game-container {
+    max-width: 350px;
+    width: 100%;
+    height: 600px;
+    background: rgba(255,255,255,0.18);
+    border-radius: 20px;
+    box-shadow: 0 0 30px rgba(0,0,0,0.35);
+    box-sizing: border-box;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    color: white;
+    text-align: center;
+    user-select:none;
+  }
+  header h1 {
+    margin: 0 0 12px 0;
+    font-size: 2rem;
+    letter-spacing: 3px;
+  }
+  #message {
+    text-align: center;
+    color: #ffecb3;
+    font-weight: 700;
+    min-height: 26px;
+    margin-bottom: 8px;
+    user-select:none;
+  }
+  #word-list {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 12px;
+  }
+  #word-list .word {
+    background: #46266fcc;
+    color: #ffecb3;
+    margin: 4px 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-weight: 600;
+    user-select:none;
+    transition: background-color 0.3s ease;
+  }
+  #word-list .found {
+    background: #8bc34acc;
+    text-decoration: line-through;
+    color: #2d2d2d;
+  }
+  #grid {
+    flex-grow: 1;
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    grid-template-rows: repeat(10, 1fr);
+    gap: 3px;
+    background: #3c2e5a;
+    border-radius: 15px;
+    touch-action: none;
+  }
+  .cell {
+    background: #5b4a9d;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffeead;
+    font-weight: 700;
+    font-size: 1rem;
+    border-radius: 8px;
+    user-select: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .cell.selected {
+    background: #ffd54f;
+    color: #3c2e5a;
+    font-weight: 900;
+  }
+  .cell.found {
+    background: #8bc34a;
+    color: #2d2d2d;
+    font-weight: 900;
+    cursor: default;
+  }
+  #start-btn {
+    margin-top: 15px;
+    background: #46266f;
+    color: #ffecb3;
+    border: none;
+    border-radius: 18px;
+    padding: 14px 0;
+    font-weight: 700;
+    font-size: 1.3rem;
+    cursor: pointer;
+    box-shadow: 0 0 18px #3a1f6b;
+    user-select:none;
+    transition: background-color 0.3s ease;
+  }
+  #start-btn:hover {
+    background: #5c3d9ecc;
+  }
+  @media(max-width:400px){
+    #game-container {
+      max-width: 320px;
+      height: 580px;
+      padding: 12px;
+    }
+    header h1 {
+      font-size: 1.7rem;
+    }
+    #word-list .word {
+      font-size: 0.85rem;
+      margin: 3px 5px;
+      padding: 3px 8px;
+    }
+    #grid {
+      gap: 2px;
+    }
+    .cell {
+      font-size: 0.85rem;
+      border-radius:6px;
+    }
+    #start-btn {
+      font-size: 1.1rem;
+      border-radius: 15px;
+      padding: 12px 0;
+    }
+  }
+</style>
+</head>
+<body>
+<div id="game-container" role="main" aria-label="Word Search Game">
+  <header>
+    <h1>Word Search</h1>
+  </header>
+  <div id="message" aria-live="polite" role="alert"></div>
+  <div id="word-list" aria-label="Words to find"></div>
+  <div id="grid" aria-label="Letter grid" role="grid" tabindex="0"></div>
+  <button id="start-btn" aria-label="Start or Restart Game">Start</button>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const words = [
+    "JAVASCRIPT", "HTML", "CSS", "BROWSER", "FUNCTION",
+    "ARRAY", "OBJECT", "EVENT", "DOCUMENT", "WINDOW"
+  ];
+  const size = 10; // grid size 10x10
+  const gridEl = document.getElementById('grid');
+  const wordListEl = document.getElementById('word-list');
+  const messageEl = document.getElementById('message');
+  const startBtn = document.getElementById('start-btn');
+
+  let grid = [];
+  let foundWords = new Set();
+  let selecting = false;
+  let selectionPath = [];
+  let audioCtx = null;
+
+  // Directions for word placement (row, col)
+  const directions = [
+    [0,1],  [1,0], [1,1], [-1,1], // right, down, diagonal down-right, diagonal up-right
+  ];
+
+  // Helper: create empty grid
+  function createEmptyGrid() {
+    grid = [];
+    for(let r=0; r<size; r++){
+      let row = [];
+      for(let c=0; c<size; c++){
+        row.push('');
+      }
+      grid.push(row);
+    }
+  }
+
+  // Helper: shuffle array
+  function shuffleArray(arr) {
+    for(let i = arr.length -1; i >0; i--) {
+      const j = Math.floor(Math.random() * (i+1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  // Place words on grid
+  function placeWords() {
+    for(let w = 0; w < words.length; w++){
+      const word = words[w];
+      let placed = false;
+      let attempts = 0;   
+      while(!placed && attempts < 1000) {
+        attempts++;
+        const dir = directions[Math.floor(Math.random() * directions.length)];
+        const rowInc = dir[0], colInc = dir[1];
+        let row = Math.floor(Math.random() * size);
+        let col = Math.floor(Math.random() * size);
+
+        // Check if word fits in grid in this direction
+        let endRow = row + rowInc * (word.length - 1);
+        let endCol = col + colInc * (word.length - 1);
+        if(endRow < 0 || endRow >= size || endCol < 0 || endCol >= size) continue;
+
+        // Check if cells are empty or already matching characters
+        let canPlace = true;
+        for(let i = 0; i < word.length; i++) {
+          let r = row + i * rowInc;
+          let c = col + i * colInc;
+          if(grid[r][c] !== '' && grid[r][c] !== word[i]) {
+            canPlace = false;
+            break;
+          }
+        }
+        if(canPlace) {
+          // Place the word
+          for(let i=0; i<word.length; i++) {
+            const r = row + i*rowInc;
+            const c = col + i*colInc;
+            grid[r][c] = word[i];
+          }
+          placed = true;
+        }
+      }
+      if(!placed) {
+        console.warn('Failed to place word:', word);
+      }
+    }
+  }
+
+  // Fill empty grid cells with random letters
+  function fillEmptyCells() {
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    for(let r=0; r<size; r++){
+      for(let c=0; c<size; c++){
+        if(grid[r][c] === '') {
+          grid[r][c] = letters[Math.floor(Math.random()*letters.length)];
+        }
+      }
+    }
+  }
+
+  // Render the grid and word list
+  function renderGridAndWords() {
+    gridEl.innerHTML = '';
+    wordListEl.innerHTML = '';
+
+    for(let r=0; r<size; r++){
+      for(let c=0; c<size; c++){
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.textContent = grid[r][c];
+        cell.dataset.row = r;
+        cell.dataset.col = c;
+        cell.tabIndex = -1;
+        cell.setAttribute('role','gridcell');
+        gridEl.appendChild(cell);
+      }
+    }
+
+    words.forEach(word => {
+      const wEl = document.createElement('div');
+      wEl.className = 'word';
+      wEl.textContent = word;
+      wordListEl.appendChild(wEl);
+    });
+  }
+
+  // Utility: get cell by row and col
+  function getCell(row, col) {
+    return gridEl.querySelector(`.cell[data-row="${row}"][data-col="${col}"]`);
+  }
+
+  // Check if selected path forms a word
+  function checkSelectedWord(path) {
+    if(path.length < 2) return null;
+    let word = '';
+    for(let pos of path) {
+      word += grid[pos[0]][pos[1]];
+    }
+    return word;
+  }
+
+  // Check if reversed selection forms a word
+  function checkSelectedWordReversed(path) {
+    if(path.length < 2) return null;
+    let word = '';
+    for(let i=path.length-1; i>=0; i--) {
+      const pos = path[i];
+      word += grid[pos[0]][pos[1]];
+    }
+    return word;
+  }
+
+  // Highlight selection
+  function highlightSelection(path) {
+    clearSelectionHighlight();
+    for(let pos of path) {
+      const cell = getCell(pos[0], pos[1]);
+      if(cell && !cell.classList.contains('found')){
+        cell.classList.add('selected');
+      }
+    }
+  }
+
+  // Clear selection highlight
+  function clearSelectionHighlight() {
+    gridEl.querySelectorAll('.cell.selected').forEach(cell => cell.classList.remove('selected'));
+  }
+
+  // Mark found word letters
+  function markFoundWord(path) {
+    for(let pos of path) {
+      const cell = getCell(pos[0], pos[1]);
+      if(cell) {
+        cell.classList.remove('selected');
+        cell.classList.add('found');
+      }
+    }
+  }
+
+  // Highlight word in word list as found
+  function markFoundWordInList(word) {
+    word = word.toUpperCase();
+    [...wordListEl.children].forEach(wEl => {
+      if(wEl.textContent === word){
+        wEl.classList.add('found');
+      }
+    });
+  }
+
+  // Check straight line validity for selection path (horizontal, vertical, diagonal)
+  function isStraightLine(path) {
+    if(path.length < 2) return false;
+    let dr = path[1][0] - path[0][0];
+    let dc = path[1][1] - path[0][1];
+
+    // Normalize direction to -1, 0, or 1
+    dr = Math.sign(dr);
+    dc = Math.sign(dc);
+
+    for(let i=2; i<path.length; i++) {
+      let curDr = path[i][0] - path[i-1][0];
+      let curDc = path[i][1] - path[i-1][1];
+      if(Math.sign(curDr) !== dr || Math.sign(curDc) !== dc) return false;
+    }
+    return true;
+  }
+
+  // Setup audio context and sound play
+  function setupAudioCtx() {
+    if(audioCtx === null){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+  }
+
+  function playSound(type) {
+    setupAudioCtx();
+    if(!audioCtx) return;
+    let osc = audioCtx.createOscillator();
+    let gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+
+    switch(type){
+      case 'success':
+        osc.frequency.value = 650;
+        osc.type = 'triangle';
+        break;
+      case 'fail':
+        osc.frequency.value = 280;
+        osc.type = 'sawtooth';
+        break;
+    }
+
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + 0.3);
+  }
+
+  // Game status reset
+  function resetGame() {
+    foundWords.clear();
+    messageEl.textContent = '';
+  }
+
+  // Check if game finished
+  function checkGameFinished() {
+    if(foundWords.size === words.length) {
+      messageEl.textContent = '🎉 Congratulations! You found all words!';
+      playSound('success');
+    }
+  }
+
+  // Variables to track selection
+  let startPos = null;
+
+  // Pointer events handlers
+  function onPointerDown(e) {
+    if(e.target.classList.contains('cell') && !e.target.classList.contains('found')) {
+      selecting = true;
+      selectionPath = [];
+      startPos = [parseInt(e.target.dataset.row), parseInt(e.target.dataset.col)];
+      selectionPath.push(startPos);
+      highlightSelection(selectionPath);
+      e.target.setPointerCapture(e.pointerId);
+    }
+  }
+
+  function onPointerMove(e) {
+    if(!selecting) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if(!el || !el.classList.contains('cell')) return;
+    const r = parseInt(el.dataset.row);
+    const c = parseInt(el.dataset.col);
+    const lastPos = selectionPath[selectionPath.length - 1];
+    if(r === lastPos[0] && c === lastPos[1]) return; // same cell
+
+    // Only allow adjacent or straight line extension
+    // Allow straight lines only
+    const newPos = [r,c];
+    // Check if newPos already in selectionPath
+    if(selectionPath.some(pos => pos[0] === r && pos[1] === c)) return;
+
+    // Add newPos if it's in line with startPos or previous pos
+    if(selectionPath.length === 1){
+      selectionPath.push(newPos);
+    } else {
+      if(isStraightLine([...selectionPath, newPos])){
+        selectionPath.push(newPos);
+      } else {
+        return; // ignore movement that breaks line
+      }
+    }
+    highlightSelection(selectionPath);
+  }
+
+  function onPointerUp(e) {
+    if(!selecting) return;
+    selecting = false;
+    if(selectionPath.length < 2) {
+      clearSelectionHighlight();
+      return;
+    }
+    // Check if selected word or reverse is in words list and not already found
+    let selectedWord = checkSelectedWord(selectionPath);
+    let selectedWordRev = checkSelectedWordReversed(selectionPath);
+
+    let foundWord = null;
+    if(words.includes(selectedWord) && !foundWords.has(selectedWord)) {
+      foundWord = selectedWord;
+    } else if(words.includes(selectedWordRev) && !foundWords.has(selectedWordRev)) {
+      foundWord = selectedWordRev;
+    }
+
+    if(foundWord) {
+      markFoundWord(selectionPath);
+      markFoundWordInList(foundWord);
+      foundWords.add(foundWord);
+      messageEl.textContent = `You found: ${foundWord}`;
+      playSound('success');
+      checkGameFinished();
+    } else {
+      messageEl.textContent = 'Try again!';
+      playSound('fail');
+    }
+    clearSelectionHighlight();
+    selectionPath = [];
+  }
+
+  // Initialize game: create grid, place words, fill empties, and render
+  function initGame() {
+    resetGame();
+    createEmptyGrid();
+    placeWords();
+    fillEmptyCells();
+    renderGridAndWords();
+  }
+
+  // Setup event listeners
+  gridEl.addEventListener('pointerdown', onPointerDown);
+  gridEl.addEventListener('pointermove', onPointerMove);
+  gridEl.addEventListener('pointerup', onPointerUp);
+  gridEl.addEventListener('pointercancel', onPointerUp);
+  gridEl.addEventListener('pointerleave', onPointerUp);
+
+  startBtn.addEventListener('click', () => {
+    initGame();
+    messageEl.textContent = 'Find all the words!';
+  });
+
+  // Start initially disabled grid and no words until start
+  messageEl.textContent = 'Press Start to play';
+  wordListEl.innerHTML = '';
+  gridEl.innerHTML = '';
+  gridEl.style.pointerEvents = 'auto';
+  audioCtx = null;
+})();
+</script>
+</body>
+</html>
+
